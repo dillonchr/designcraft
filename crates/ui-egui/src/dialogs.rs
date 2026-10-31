@@ -55,6 +55,13 @@ impl Dialog {
                     "tagged": true
                 })
             }
+            "printBooklet" => {
+                json!({
+                    "type": "fourUpDuplicate",
+                    "spaceBetween": "0 pt",
+                    "spaceBetweenY": "0 pt"
+                })
+            }
             _ => json!({}),
         };
         if let Value::Object(d) = defaults {
@@ -421,6 +428,51 @@ pub fn open_epub_export(app: &mut DesignApp) {
         EpubSplit::ExportTags => json!({"split": true, "mode": "exportTags"}),
     };
     app.ui.dialog = Some(Dialog::new("epubExport", fields));
+}
+
+/// File › Print Booklet…: choose between 2-Up Saddle Stitch, 4-Up Duplicate, or 2-Up Consecutive.
+pub fn open_print_booklet(app: &mut DesignApp) {
+    let fields = json!({
+        "type": "fourUpDuplicate",
+        "spaceBetween": "0 pt",
+        "spaceBetweenY": "0 pt",
+    });
+    app.ui.dialog = Some(Dialog::new("printBooklet", fields));
+}
+
+fn print_booklet_dialog(app: &crate::DesignApp, ui: &mut egui::Ui, d: &mut Dialog) {
+    let lang = app.ui.language.as_str();
+    egui::Grid::new("print_booklet_grid").num_columns(2).spacing([12.0, 8.0]).show(ui, |ui| {
+        crate::rtl::label(ui, crate::i18n::tr(lang, "Booklet Type:"));
+        let cur_type = d.s("type");
+        let cur_label = match cur_type.as_str() {
+            "fourUpDuplicate" | "fourUp" | "twoUpDuplicate" => "4-Up Duplicate (Two Copies)",
+            "twoUpConsecutive" | "twoUp" => "2-Up Consecutive",
+            _ => "2-Up Saddle Stitch",
+        };
+        craft_ui::ComboBox::from_id_salt("booklet_type").selected_text(cur_label).width(220.0).show_ui(ui, |ui| {
+            if ui.selectable_label(cur_type == "saddleStitch", "2-Up Saddle Stitch").clicked() {
+                d.fields.insert("type".into(), json!("saddleStitch"));
+            }
+            if ui.selectable_label(cur_type == "fourUpDuplicate", "4-Up Duplicate (Two Copies)").clicked() {
+                d.fields.insert("type".into(), json!("fourUpDuplicate"));
+            }
+            if ui.selectable_label(cur_type == "twoUpConsecutive", "2-Up Consecutive").clicked() {
+                d.fields.insert("type".into(), json!("twoUpConsecutive"));
+            }
+        });
+        ui.end_row();
+
+        crate::rtl::label(ui, crate::i18n::tr(lang, "Space Between Pages:"));
+        text_field(ui, d, "spaceBetween", 80.0);
+        ui.end_row();
+
+        if d.s("type") == "fourUpDuplicate" {
+            crate::rtl::label(ui, crate::i18n::tr(lang, "Space Between Copies:"));
+            text_field(ui, d, "spaceBetweenY", 80.0);
+            ui.end_row();
+        }
+    });
 }
 
 /// The Split Document setting the EPUB Export Options dialog's fields describe.
@@ -2439,6 +2491,7 @@ pub fn show(app: &mut DesignApp, ctx: &egui::Context) {
         "qrCode" => crate::i18n::tr(&app.ui.language, "Generate QR Code"),
         "preferences" => crate::i18n::tr(&app.ui.language, "Preferences"),
         "print" => crate::i18n::tr(&app.ui.language, "Print"),
+        "printBooklet" => crate::i18n::tr(&app.ui.language, "Print Booklet"),
         "pdfImport" => crate::i18n::tr(&app.ui.language, "Place PDF"),
         "pdfExport" => crate::i18n::tr(&app.ui.language, "Export PDF"),
         "epubExport" => crate::i18n::tr(&app.ui.language, "EPUB Export Options"),
@@ -3197,6 +3250,7 @@ pub fn show(app: &mut DesignApp, ctx: &egui::Context) {
                     "numberingSection" => crate::section_options::body(app, ui, &mut d),
                     "pdfExport" => pdf_export(app, ui, &mut d),
                     "epubExport" => epub_export(app, ui, &mut d),
+                    "printBooklet" => print_booklet_dialog(app, ui, &mut d),
                     "alert" => {
                         let file = d.s("file");
                         if !file.is_empty() {
@@ -3218,6 +3272,7 @@ pub fn show(app: &mut DesignApp, ctx: &egui::Context) {
             "updateLink" => crate::i18n::tr(&app.ui.language, "  Update  ").to_string(),
             "findFont" => crate::i18n::tr(&app.ui.language, "Replace All").to_string(),
             "newDocument" => format!("  {}  ", crate::i18n::tr(&app.ui.language, "Create")),
+            "printBooklet" => crate::i18n::tr(&app.ui.language, "Print Booklet…").to_string(),
             _ => crate::i18n::tr(&app.ui.language, "  OK  ").to_string(),
         };
         let cancel_label = match d.id.as_str() {
@@ -4071,6 +4126,18 @@ fn confirm_part3(app: &mut DesignApp, d: Dialog) -> Result<Value, String> {
             let stem = if title.is_empty() { doc_name } else { title };
             let name = if stem.is_empty() { "Export.pdf".to_string() } else { format!("{stem}.pdf") };
             app.ask_save(&name, Bound::Document, move |app, path| crate::menus::export_pdf(app, &with_path(&params, "path", path)))
+        }
+        "printBooklet" => {
+            let doc_name = app.session.active().map(|st| st.doc.title.clone()).unwrap_or_default();
+            let name = if doc_name.is_empty() { "Booklet.pdf".to_string() } else { format!("{doc_name} Booklet.pdf") };
+            let params = json!({
+                "type": d.s("type"),
+                "spaceBetween": d.pt("spaceBetween").unwrap_or(0.0),
+                "spaceBetweenY": d.pt("spaceBetweenY").unwrap_or(0.0),
+            });
+            app.ask_save(&name, Bound::Document, move |app, path| {
+                app.run("file.printBooklet", with_path(&params, "path", path))
+            })
         }
         _ => confirm_part4(app, d),
     }

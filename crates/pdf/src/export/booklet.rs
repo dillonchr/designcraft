@@ -48,6 +48,8 @@ pub enum BookletKind {
     SaddleStitch,
     /// Two pages side by side in reading order.
     TwoUpConsecutive,
+    /// Two identical saddle-stitched spreads on top and bottom of each sheet (cut stack in half).
+    FourUpDuplicate,
 }
 
 #[derive(Clone, Debug, Default)]
@@ -55,6 +57,8 @@ pub struct BookletOptions {
     pub kind: BookletKind,
     /// Gap between the two pages of a printer spread (points).
     pub space_between: f64,
+    /// Gap between the top and bottom copies of a 4-up spread (points).
+    pub space_between_y: f64,
     pub title: Option<String>,
 }
 
@@ -63,7 +67,7 @@ pub fn booklet_pairs(n: usize, kind: BookletKind) -> Vec<(Option<usize>, Option<
     let page = |i: usize| (i < n).then_some(i);
     match kind {
         BookletKind::TwoUpConsecutive => (0..n.div_ceil(2)).map(|k| (page(2 * k), page(2 * k + 1))).collect(),
-        BookletKind::SaddleStitch => {
+        BookletKind::SaddleStitch | BookletKind::FourUpDuplicate => {
             let m = n.div_ceil(4).max(1) * 4;
             (0..m / 2).map(|i| if i % 2 == 0 { (page(m - 1 - i), page(i)) } else { (page(i), page(m - 1 - i)) }).collect()
         }
@@ -136,26 +140,34 @@ fn export_booklet_inner(doc: &Document, cache: &Cache, opts: &BookletOptions) ->
         }
     }
     let gap = opts.space_between.max(0.0);
-    let size = Size::from_wh((2.0 * pw + gap) as f32, ph as f32).ok_or(PdfError::NoPages)?;
+    let gap_y = opts.space_between_y.max(0.0);
+    let is_four_up = opts.kind == BookletKind::FourUpDuplicate;
+    let sheet_w = (2.0 * pw + gap) as f32;
+    let sheet_h = (if is_four_up { 2.0 * ph + gap_y } else { ph }) as f32;
+    let size = Size::from_wh(sheet_w, sheet_h).ok_or(PdfError::NoPages)?;
+    let rows = if is_four_up { [0.0, ph + gap_y] } else { [0.0, 0.0] };
+    let row_count = if is_four_up { 2 } else { 1 };
     for (left, right) in &pairs {
         let mut page = pdf.start_page_with(PageSettings::new(size));
         let mut s = page.surface();
         #[cfg(all(test, not(target_arch = "wasm32")))]
         unwind_tests::inject(&mut s);
-        for (slot, abs) in [(0.0, left), (pw + gap, right)] {
-            let Some((si, pi)) = abs.and_then(|a| doc.page_loc(a)) else { continue };
-            let p = &doc.spreads[si].pages[pi];
-            let r = Rect::new(p.x, 0.0, p.x + p.width, p.height);
-            // Pages narrower than the slot sit against the fold.
-            let dx = if slot == 0.0 { pw - p.width } else { 0.0 };
-            s.push_transform(&tf(Affine::translate((slot + dx - p.x, (ph - p.height) / 2.0))));
-            ex.clip = r;
-            if let Some(clip) = to_path(&r.to_path(0.1)) {
-                s.push_clip_path(&clip, &FillRule::NonZero);
-                ex.spread(&mut s, si);
+        for &row_y in &rows[..row_count] {
+            for (slot, abs) in [(0.0, left), (pw + gap, right)] {
+                let Some((si, pi)) = abs.and_then(|a| doc.page_loc(a)) else { continue };
+                let p = &doc.spreads[si].pages[pi];
+                let r = Rect::new(p.x, 0.0, p.x + p.width, p.height);
+                // Pages narrower than the slot sit against the fold.
+                let dx = if slot == 0.0 { pw - p.width } else { 0.0 };
+                s.push_transform(&tf(Affine::translate((slot + dx - p.x, row_y + (ph - p.height) / 2.0))));
+                ex.clip = r;
+                if let Some(clip) = to_path(&r.to_path(0.1)) {
+                    s.push_clip_path(&clip, &FillRule::NonZero);
+                    ex.spread(&mut s, si);
+                    s.pop();
+                }
                 s.pop();
             }
-            s.pop();
         }
         s.finish();
         page.finish();

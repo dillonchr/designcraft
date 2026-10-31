@@ -7,11 +7,17 @@ pub(super) fn print_booklet(s: &mut Session, p: &Value) -> Result<Value> {
     let kind = match str_param(p, "type").unwrap_or("saddleStitch") {
         "saddleStitch" => designcraft_pdf::BookletKind::SaddleStitch,
         "twoUpConsecutive" | "twoUp" => designcraft_pdf::BookletKind::TwoUpConsecutive,
+        "fourUpDuplicate" | "fourUp" | "twoUpDuplicate" => designcraft_pdf::BookletKind::FourUpDuplicate,
         t => {
-            return Err(bad(ID, format!("unknown type `{t}` (saddleStitch, twoUpConsecutive)")));
+            return Err(bad(ID, format!("unknown type `{t}` (saddleStitch, twoUpConsecutive, fourUpDuplicate)")));
         }
     };
-    let opts = designcraft_pdf::BookletOptions { kind, space_between: p.get("spaceBetween").and_then(Value::as_f64).unwrap_or(0.0), title: None };
+    let opts = designcraft_pdf::BookletOptions {
+        kind,
+        space_between: p.get("spaceBetween").and_then(Value::as_f64).unwrap_or(0.0),
+        space_between_y: p.get("spaceBetweenY").and_then(Value::as_f64).unwrap_or(0.0),
+        title: None,
+    };
     let st = s.doc()?;
     let r = designcraft_pdf::export_booklet(&crate::cmd::interchange::with_pdf_boxes(&st.doc), &s.cache, &opts)
         .map_err(|e| EngineError::Other(e.to_string()))?;
@@ -355,6 +361,12 @@ mod booklet_tests {
         let (ink, blank) = (at(612.0 + 200.0, 200.0), at(200.0, 200.0));
         assert!(ink.a > 200 && ink.r < 60, "right half has page 1: {ink:?}");
         assert!(blank.a < 30 || blank.r > 200, "left half (page 4) is empty: {blank:?}");
+        assert_eq!(booklet_pairs(8, BookletKind::FourUpDuplicate), booklet_pairs(8, BookletKind::SaddleStitch));
+        let r4 = s.execute("file.printBooklet", &json!({"type": "fourUpDuplicate", "spaceBetweenY": 20})).unwrap();
+        assert_eq!(r4["sheets"], 2);
+        let pdf4 = String::from_utf8_lossy(&crate::cmd::file::base64_decode(r4["base64"].as_str().unwrap())).into_owned();
+        let mb4 = pdf4.find("/MediaBox").map(|i| pdf4[i..i + 40].to_string()).unwrap_or_default();
+        assert!(mb4.contains("1604"), "two 792 pt pages and a 20 pt vertical gap: {mb4}");
     }
 }
 

@@ -197,7 +197,14 @@ fn run_ui_part1(app: &mut DesignApp, id: &str, p: &Value) -> Option<Result<Value
         "app.exportHtml" => export_bytes(app, p, "html", "file.exportHtml"),
         "app.exportPptx" => export_bytes(app, p, "pptx", "file.exportPptx"),
         "app.exportXml" => export_bytes(app, p, "xml", "file.exportXml"),
-        "app.printBooklet" => export_bytes(app, p, "pdf", "file.printBooklet"),
+        "app.printBooklet" => {
+            if p.is_null() || p.as_object().is_none_or(|m| m.is_empty()) {
+                crate::dialogs::open_print_booklet(app);
+                Ok(Value::Null)
+            } else {
+                export_bytes(app, p, "pdf", "file.printBooklet")
+            }
+        }
         "app.menus" => {
             app.ui.dialog = Some(crate::dialogs::Dialog::new("menus", json!({"query": ""})));
             Ok(Value::Null)

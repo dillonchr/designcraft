@@ -38,7 +38,7 @@ pub fn specs() -> Vec<CommandSpec> {
             export_epub(s, &crate::cmd::with_param(p, "fixedLayout", serde_json::json!(true)))
         }),
         cmd!(noundo "file.printBooklet", "Print Booklet…", ["File"], None,
-        "{path?, type?: saddleStitch|twoUpConsecutive, spaceBetween? (pt)} — printer spreads as PDF (pages imposed in booklet order) → {path, bytes, sheets} (no path: {base64, …})",
+        "{path?, type?: saddleStitch|twoUpConsecutive|fourUpDuplicate, spaceBetween? (pt), spaceBetweenY? (pt)} — printer spreads as PDF (pages imposed in booklet order; fourUpDuplicate puts two copies on top & bottom) → {path, bytes, sheets} (no path: {base64, …})",
         has_doc, print_booklet),
         cmd!(noundo "file.exportHtml", "Export HTML…", ["File"], None,
         "{path?, title?, language?} — one self-contained page (styles inline, images embedded), stories and graphics in reading order → {path, bytes, warnings} (no path: {text, bytes, warnings})",
